@@ -1,30 +1,27 @@
 import os
 from flask import Flask
 from ml_backend.extensions import db, migrate
-from ml_backend.config import config_by_name, DevelopmentConfig
-from ml_backend.views import main_bp
+from ml_backend.config import config_by_name
 
 def create_app(config_name=None):
+    if config_name is None:
+        config_name = os.getenv('FLASK_CONFIG', 'development')
+
     app = Flask(__name__)
-    
-    # Determine configuration name from argument, environment variable, or default
-    env_name = config_name or os.getenv("FLASK_CONFIG", "development")
-    config_class = config_by_name.get(env_name, DevelopmentConfig)
-    
-    # Load configuration from the selected config class
-    app.config.from_object(config_class)
+    app.config.from_object(config_by_name[config_name])
 
-    # Runtime diagnostic to prove .env integration
-    print(f"--- RUNTIME CONFIG DIAGNOSTIC ---")
-    print(f"Active Environment Name: {env_name}")
-    print(f"Loaded Database URI: {app.config['SQLALCHEMY_DATABASE_URI']}")
-    print(f"---------------------------------")
+    # Diagnostic output
+    print(f"\n--- RUNTIME CONFIG DIAGNOSTIC ---")
+    print(f"Active Environment Name: {config_name}")
+    print(f"Loaded Database URI: {app.config.get('SQLALCHEMY_DATABASE_URI')}")
+    print(f"---------------------------------\n")
 
-    # Initialize extensions with app
+    # Initialize extensions
     db.init_app(app)
     migrate.init_app(app, db)
 
-    # Register blueprints safely inside the factory
+    # Register Blueprints
+    from ml_backend.views import main_bp
     app.register_blueprint(main_bp)
 
     return app
