@@ -23,7 +23,7 @@ def _validate_credentials(data: dict, *, min_password_length: int = 8) -> tuple[
 
     username = raw_username.strip() if isinstance(raw_username, str) else ""
     if not username:
-        details["username"] = "Username is required."
+        details["username"] = "Username is required and must be a string."
     elif len(username) > 80:
         details["username"] = "Username must be 80 characters or fewer."
 
@@ -31,7 +31,7 @@ def _validate_credentials(data: dict, *, min_password_length: int = 8) -> tuple[
         if min_password_length > 1:
             details["password"] = f"Password must be at least {min_password_length} characters."
         else:
-            details["password"] = "Password is required."
+            details["password"] = "Password is required and must be a string."
     elif len(raw_password) > 128:
         details["password"] = "Password must be 128 characters or fewer."
 
@@ -85,3 +85,36 @@ def register():
         )
 
     return jsonify({"user": user.to_dict()}), 201
+
+
+@auth_bp.post("/login")
+def login():
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return _error_response(
+            code="VALIDATION_ERROR",
+            message="Invalid login input.",
+            status_code=400,
+        )
+
+    username, password, details = _validate_credentials(data, min_password_length=1)
+    if details:
+        return _error_response(
+            code="VALIDATION_ERROR",
+            message="Invalid login input.",
+            status_code=400,
+            details=details,
+        )
+
+    user = db.session.execute(
+        db.select(User).where(db.func.lower(User.username) == username.lower())
+    ).scalar_one_or_none()
+
+    if user is None or not user.check_password(password):
+        return _error_response(
+            code="INVALID_CREDENTIALS",
+            message="Invalid username or password.",
+            status_code=401,
+        )
+
+    return jsonify({"user": user.to_dict()}), 200
