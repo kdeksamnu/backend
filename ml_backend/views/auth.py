@@ -1,4 +1,6 @@
-from flask import Blueprint, jsonify, request
+from datetime import datetime, timedelta, timezone
+import jwt
+from flask import Blueprint, current_app, jsonify, request
 from sqlalchemy.exc import IntegrityError
 from ml_backend.extensions import db
 from ml_backend.models import User
@@ -117,4 +119,20 @@ def login():
             status_code=401,
         )
 
-    return jsonify({"user": user.to_dict()}), 200
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": str(user.id),
+        "role": "operator",
+        "exp": now + timedelta(seconds=current_app.config["JWT_ACCESS_LIFETIME_SECONDS"]),
+    }
+    access_token = jwt.encode(
+        payload,
+        current_app.config["JWT_SECRET_KEY"],
+        algorithm="HS256",
+    )
+
+    return jsonify({
+        "access_token": access_token,
+        "token_type": "Bearer",
+        "user": user.to_dict(),
+    }), 200
