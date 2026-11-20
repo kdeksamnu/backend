@@ -1,4 +1,3 @@
-from datetime import timezone
 from flask import Blueprint, jsonify, request
 from sqlalchemy.exc import IntegrityError
 from werkzeug.security import generate_password_hash
@@ -29,11 +28,13 @@ def _validate_credentials(data: dict, *, min_password_length: int = 8) -> tuple[
     elif len(username) > 80:
         details["username"] = "Username must be 80 characters or fewer."
 
-    if not isinstance(raw_password, str) or len(raw_password) < min_password_length:
+    if not isinstance(raw_password, str) or not raw_password.strip() or len(raw_password) < min_password_length:
         if min_password_length > 1:
             details["password"] = f"Password must be at least {min_password_length} characters."
         else:
             details["password"] = "Password is required."
+    elif len(raw_password) > 128:
+        details["password"] = "Password must be 128 characters or fewer."
 
     password = raw_password if isinstance(raw_password, str) else ""
     return username, password, details
@@ -59,7 +60,7 @@ def register():
         )
 
     existing_user = db.session.execute(
-        db.select(User).filter_by(username=username)
+        db.select(User).where(db.func.lower(User.username) == username.lower())
     ).scalar_one_or_none()
     if existing_user is not None:
         return _error_response(
@@ -86,16 +87,4 @@ def register():
             details={"username": "Username is already taken."},
         )
 
-    created_at = (
-        user.created_at.replace(tzinfo=timezone.utc)
-        if user.created_at.tzinfo is None
-        else user.created_at.astimezone(timezone.utc)
-    )
-
-    return jsonify({
-        "user": {
-            "id": user.id,
-            "username": user.username,
-            "created_at": created_at.isoformat().replace("+00:00", "Z"),
-        }
-    }), 201
+    return jsonify({"user": user.to_dict()}), 201
