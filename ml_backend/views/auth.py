@@ -162,7 +162,7 @@ def login():
     now = datetime.now(timezone.utc)
     payload = {
         "sub": str(user.id),
-        "role": "operator",
+        "role": user.role,
         "exp": now + timedelta(seconds=current_app.config["JWT_ACCESS_LIFETIME_SECONDS"]),
     }
     access_token = jwt.encode(
@@ -190,3 +190,127 @@ def me():
         )
 
     return jsonify({"user": user.to_dict()}), 200
+
+
+@auth_bp.patch("/me")
+@require_auth
+def update_me():
+    user = db.session.get(User, g.current_user_id)
+    if user is None:
+        return _error_response(
+            code="USER_NOT_FOUND",
+            message="Authenticated user no longer exists.",
+            status_code=401,
+        )
+
+    if not request.is_json:
+        return _error_response(
+            code="VALIDATION_ERROR",
+            message="Request Content-Type must be application/json.",
+            status_code=400,
+        )
+
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return _error_response(
+            code="VALIDATION_ERROR",
+            message="Request body must be a JSON object.",
+            status_code=400,
+        )
+
+    allowed_fields = {"username"}
+    disallowed_fields = sorted(set(data.keys()) - allowed_fields)
+    if disallowed_fields:
+        return _error_response(
+            code="VALIDATION_ERROR",
+            message="Request contains non-editable or unknown fields.",
+            status_code=400,
+            details={field: "Field is not editable." for field in disallowed_fields},
+        )
+
+    if "username" not in data:
+        return _error_response(
+            code="VALIDATION_ERROR",
+            message="At least one editable field ('username') must be provided.",
+            status_code=400,
+        )
+
+    raw_username = data.get("username")
+    if not isinstance(raw_username, str):
+        return _error_response(
+            code="VALIDATION_ERROR",
+            message="Invalid profile update input.",
+            status_code=400,
+            details={"username": "Username is required and must be a string."},
+        )
+
+    username = raw_username.strip()
+    if not username:
+        return _error_response(
+            code="VALIDATION_ERROR",
+            message="Invalid profile update input.",
+            status_code=400,
+            details={"username": "Username cannot be blank."},
+        )
+    if len(username) > 80:
+        return _error_response(
+            code="VALIDATION_ERROR",
+            message="Invalid profile update input.",
+            status_code=400,
+            details={"username": "Username must be 80 characters or fewer."},
+        )
+
+    if username.lower() != user.username.lower():
+        existing_user = db.session.execute(
+            db.select(User).where(
+                db.func.lower(User.username) == username.lower(),
+                User.id != user.id,
+            )
+        ).scalar_one_or_none()
+        if existing_user is not None:
+            return _error_response(
+                code="USERNAME_TAKEN",
+                message="A user with that username already exists.",
+                status_code=409,
+                details={"username": "Username is already taken."},
+            )
+
+    if username != user.username:
+        user.username = username
+        try:
+            db.session.commit()
+        except IntegrityError:
+            db.session.rollback()
+            return _error_response(
+                code="USERNAME_TAKEN",
+                message="A user with that username already exists.",
+                status_code=409,
+                details={"username": "Username is already taken."},
+            )
+
+    return jsonify({"user": user.to_dict()}), 200
+
+
+@auth_bp.get("/admin/ping")
+@require_auth
+def admin_ping():
+    user = db.session.get(User, g.current_user_id)
+    if user is None:
+        return _error_response(
+            code="USER_NOT_FOUND",
+            message="Authenticated user no longer exists.",
+            status_code=401,
+        )
+
+    if user.role != "admin":
+        return _error_response(
+            code="FORBIDDEN",
+            message="Administrator privileges are required.",
+            status_code=403,
+        )
+
+    return jsonify({
+        "status": "ok",
+        "message": "Admin access verified.",
+        "user": user.to_dict(),
+    }), 200
