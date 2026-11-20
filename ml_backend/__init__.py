@@ -1,3 +1,4 @@
+from ml_backend.cli import register_cli
 import os
 from flask import Flask
 from ml_backend.extensions import db, migrate
@@ -29,5 +30,7 @@ def create_app(config_name=None):
     from ml_backend.views.auth import auth_bp
     app.register_blueprint(main_bp)
     app.register_blueprint(auth_bp)
+    register_cli(app)
+
 
     return app
