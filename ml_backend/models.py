@@ -43,3 +43,54 @@ class User(db.Model):
             "role": self.role,
             "created_at": created_at.isoformat().replace("+00:00", "Z"),
         }
+
+
+VALID_SPECTRAL_BANDS = ("gold", "teal", "blue", "red", "violet", "emerald", "null")
+
+
+class CodexEntry(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(
+        db.Integer,
+        db.ForeignKey("user.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    title = db.Column(db.String(120), nullable=False)
+    spectral_band = db.Column(
+        db.String(32),
+        nullable=False,
+        default="teal",
+        server_default="teal",
+    )
+    content = db.Column(db.Text, nullable=False)
+    created_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+    owner = db.relationship("User", backref=db.backref("codex_entries", lazy=True))
+
+    @validates("spectral_band")
+    def validate_spectral_band(self, key: str, value: str) -> str:
+        if value not in VALID_SPECTRAL_BANDS:
+            raise ValueError(
+                f"Invalid spectral_band {value!r}; expected one of {VALID_SPECTRAL_BANDS}."
+            )
+        return value
+
+    def to_dict(self) -> dict:
+        created_at = (
+            self.created_at.replace(tzinfo=timezone.utc)
+            if self.created_at.tzinfo is None
+            else self.created_at.astimezone(timezone.utc)
+        )
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "title": self.title,
+            "spectral_band": self.spectral_band,
+            "content": self.content,
+            "created_at": created_at.isoformat().replace("+00:00", "Z"),
+        }

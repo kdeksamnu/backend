@@ -1,3 +1,4 @@
+from ml_backend.views.entries import entries_bp
 from ml_backend.cli import register_cli
 import os
 from flask import Flask
@@ -30,6 +31,7 @@ def create_app(config_name=None):
     from ml_backend.views.auth import auth_bp
     app.register_blueprint(main_bp)
     app.register_blueprint(auth_bp)
+    app.register_blueprint(entries_bp)
     register_cli(app)
 
 
