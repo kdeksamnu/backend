@@ -26,6 +26,8 @@ def create_app(config_name=None):
 
     # Register Blueprints
     from ml_backend.views import main_bp
+    from ml_backend.views.auth import auth_bp
     app.register_blueprint(main_bp)
+    app.register_blueprint(auth_bp)
 
     return app
