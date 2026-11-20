@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
+from functools import wraps
 import jwt
-from flask import Blueprint, current_app, jsonify, request
+from flask import Blueprint, current_app, g, jsonify, request
 from sqlalchemy.exc import IntegrityError
 from ml_backend.extensions import db
 from ml_backend.models import User
@@ -39,6 +40,45 @@ def _validate_credentials(data: dict, *, min_password_length: int = 8) -> tuple[
 
     password = raw_password if isinstance(raw_password, str) else ""
     return username, password, details
+
+
+def require_auth(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        auth_header = request.headers.get("Authorization", "")
+        parts = auth_header.strip().split()
+        if len(parts) != 2 or parts[0] != "Bearer" or not parts[1]:
+            return _error_response(
+                code="UNAUTHORIZED",
+                message="Missing or malformed Authorization header.",
+                status_code=401,
+            )
+
+        token = parts[1]
+        try:
+            payload = jwt.decode(
+                token,
+                current_app.config["JWT_SECRET_KEY"],
+                algorithms=["HS256"],
+                options={"require": ["sub", "exp"]},
+            )
+            g.current_user_id = int(payload["sub"])
+        except jwt.ExpiredSignatureError:
+            return _error_response(
+                code="TOKEN_EXPIRED",
+                message="Token has expired.",
+                status_code=401,
+            )
+        except (jwt.PyJWTError, KeyError, TypeError, ValueError):
+            return _error_response(
+                code="INVALID_TOKEN",
+                message="Invalid authentication token.",
+                status_code=401,
+            )
+
+        return fn(*args, **kwargs)
+
+    return wrapper
 
 
 @auth_bp.post("/register")
@@ -136,3 +176,17 @@ def login():
         "token_type": "Bearer",
         "user": user.to_dict(),
     }), 200
+
+
+@auth_bp.get("/me")
+@require_auth
+def me():
+    user = db.session.get(User, g.current_user_id)
+    if user is None:
+        return _error_response(
+            code="USER_NOT_FOUND",
+            message="Authenticated user no longer exists.",
+            status_code=401,
+        )
+
+    return jsonify({"user": user.to_dict()}), 200
