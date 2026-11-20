@@ -81,6 +81,34 @@ def require_auth(fn):
     return wrapper
 
 
+def require_role(*allowed_roles: str):
+    """Enforce DB-backed role authorization after @require_auth establishes g.current_user_id."""
+    def decorator(fn):
+        @wraps(fn)
+        def wrapper(*args, **kwargs):
+            user = db.session.get(User, g.current_user_id)
+            if user is None:
+                return _error_response(
+                    code="USER_NOT_FOUND",
+                    message="Authenticated user no longer exists.",
+                    status_code=401,
+                )
+
+            g.current_user = user
+            if user.role not in allowed_roles:
+                return _error_response(
+                    code="FORBIDDEN",
+                    message="Administrator privileges are required.",
+                    status_code=403,
+                )
+
+            return fn(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
+
+
 @auth_bp.post("/register")
 def register():
     data = request.get_json(silent=True)
@@ -293,24 +321,10 @@ def update_me():
 
 @auth_bp.get("/admin/ping")
 @require_auth
+@require_role("admin")
 def admin_ping():
-    user = db.session.get(User, g.current_user_id)
-    if user is None:
-        return _error_response(
-            code="USER_NOT_FOUND",
-            message="Authenticated user no longer exists.",
-            status_code=401,
-        )
-
-    if user.role != "admin":
-        return _error_response(
-            code="FORBIDDEN",
-            message="Administrator privileges are required.",
-            status_code=403,
-        )
-
     return jsonify({
         "status": "ok",
         "message": "Admin access verified.",
-        "user": user.to_dict(),
+        "user": g.current_user.to_dict(),
     }), 200

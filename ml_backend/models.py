@@ -1,6 +1,10 @@
+from sqlalchemy.orm import validates
 from datetime import datetime, timezone
 from werkzeug.security import check_password_hash, generate_password_hash
 from ml_backend.extensions import db
+
+
+VALID_ROLES = ("user", "admin")
 
 
 class User(db.Model):
@@ -8,6 +12,13 @@ class User(db.Model):
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
     role = db.Column(db.String(32), nullable=False, default="user", server_default="user")
+
+    @validates("role")
+    def validate_role(self, key: str, value: str) -> str:
+        if value not in VALID_ROLES:
+            raise ValueError(f"Invalid role {value!r}; expected one of {VALID_ROLES}.")
+        return value
+
     created_at = db.Column(
         db.DateTime,
         nullable=False,
