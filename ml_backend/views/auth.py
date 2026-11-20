@@ -1,6 +1,5 @@
 from flask import Blueprint, jsonify, request
 from sqlalchemy.exc import IntegrityError
-from werkzeug.security import generate_password_hash
 from ml_backend.extensions import db
 from ml_backend.models import User
 
@@ -70,10 +69,8 @@ def register():
             details={"username": "Username is already taken."},
         )
 
-    user = User(
-        username=username,
-        password_hash=generate_password_hash(password),
-    )
+    user = User(username=username)
+    user.set_password(password)
     db.session.add(user)
 
     try:
