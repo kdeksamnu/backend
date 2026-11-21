@@ -22,3 +22,25 @@ Correct passwords return token verification success; incorrect passwords return 
 
 Audit Storage Inspection (GET /audit/users):
 Returns records containing password_hash strings starting with scrypt:32768:....
+
+---
+
+## Safe Authentication Extension Guidelines
+
+If you are a future teammate or auditor extending this authentication module, follow these strict guardrails to prevent weakening our security posture.
+
+### 1. Model Serialization ("Do vs. Don't")
+* **DO** use `to_dict()` for standard client responses (exposing only non-sensitive identifiers like `id`, `username`, and `role`).
+* **DON'T** ever add `password_hash` or internal secrets to `to_dict()`. If an evidence route or debugging tool explicitly requires hash inspection, use `to_evidence_dict()` in a restricted, audited context.
+
+*Example:*
+```python
+# SAFE (Standard API response)
+def to_dict(self):
+    return {"id": self.id, "username": self.username, "role": self.role}
+
+# UNSAFE - DO NOT DO THIS IN STANDARD ROUTES
+def unsafe_bad_example(self):
+    return {"id": self.id, "password_hash": self.password_hash} # LEAKS HASH
+2. Adding Protected Routes
+When adding new endpoints that require authentication, always rely on Werkzeug's check_password_hash() or proper token verification decorators rather than comparing raw strings or bypassing model methods.
