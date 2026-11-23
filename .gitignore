@@ -17,3 +17,6 @@ ENV/
 *.db
 *.sqlite
 instance/
+.DS_Store
+*.bak
+.pytest_cache/
