@@ -198,3 +198,104 @@ def test_user_codex_entries_relationship_and_cascade_delete():
 
         db.session.remove()
         db.drop_all()
+
+
+def test_entry_detail_update_delete_edge_cases():
+    """Verify 404 Not Found, PATCH field validation, cross-user 403 isolation, and DELETE persistence."""
+    from ml_backend import create_app
+    from ml_backend.extensions import db
+
+    app = create_app("testing")
+    client = app.test_client()
+
+    with app.app_context():
+        db.create_all()
+
+    # Register & authenticate Owner (User A) and Intruder (User B)
+    assert client.post("/register", json={"username": "detail_owner", "password": "Password123!"}).status_code == 201
+    token_a = client.post("/login", json={"username": "detail_owner", "password": "Password123!"}).get_json()["access_token"]
+    headers_a = {"Authorization": f"Bearer {token_a}"}
+
+    assert client.post("/register", json={"username": "detail_intruder", "password": "Password123!"}).status_code == 201
+    token_b = client.post("/login", json={"username": "detail_intruder", "password": "Password123!"}).get_json()["access_token"]
+    headers_b = {"Authorization": f"Bearer {token_b}"}
+
+    # 1. 404 Not Found on non-existent entry ID across GET, PATCH, and DELETE
+    for method in ("get", "patch", "delete"):
+        req_kwargs = {"headers": headers_a}
+        if method == "patch":
+            req_kwargs["json"] = {"title": "Ghost Update"}
+        res = getattr(client, method)("/entries/999999", **req_kwargs)
+        assert res.status_code == 404
+        assert res.get_json()["error"]["code"] == "NOT_FOUND"
+
+    # Create an owned entry as User A
+    create_res = client.post(
+        "/entries",
+        json={
+            "title": "Chamber IV: The Anchor of the Abyss",
+            "spectral_band": "gold",
+            "content": "Initial sovereign inscription.",
+        },
+        headers=headers_a,
+    )
+    assert create_res.status_code == 201
+    entry_id = create_res.get_json()["entry"]["id"]
+
+    # 2. Cross-user 403 Forbidden isolation on GET, PATCH, and DELETE
+    for method in ("get", "patch", "delete"):
+        req_kwargs = {"headers": headers_b}
+        if method == "patch":
+            req_kwargs["json"] = {"title": "Hijacked Title"}
+        res = getattr(client, method)(f"/entries/{entry_id}", **req_kwargs)
+        assert res.status_code == 403
+        assert res.get_json()["error"]["code"] == "FORBIDDEN"
+
+    # 3. PATCH validation errors on owner's entry (empty object, protected user_id, blank title/content, bad spectral_band)
+    empty_patch = client.patch(f"/entries/{entry_id}", json={}, headers=headers_a)
+    assert empty_patch.status_code == 400
+    assert empty_patch.get_json()["error"]["code"] == "VALIDATION_ERROR"
+
+    spoof_patch = client.patch(f"/entries/{entry_id}", json={"user_id": 2}, headers=headers_a)
+    assert spoof_patch.status_code == 400
+    assert "user_id" in spoof_patch.get_json()["error"]["details"]
+
+    invalid_fields_patch = client.patch(
+        f"/entries/{entry_id}",
+        json={"title": "   ", "content": "", "spectral_band": "infrared"},
+        headers=headers_a,
+    )
+    assert invalid_fields_patch.status_code == 400
+    details = invalid_fields_patch.get_json()["error"]["details"]
+    assert "title" in details
+    assert "content" in details
+    assert "spectral_band" in details
+
+    # 4. Valid partial PATCH updates only supplied fields and persists
+    valid_patch = client.patch(
+        f"/entries/{entry_id}",
+        json={"title": "  Chamber IV: Revised Anchor  ", "spectral_band": "EMERALD"},
+        headers=headers_a,
+    )
+    assert valid_patch.status_code == 200
+    updated_entry = valid_patch.get_json()["entry"]
+    assert updated_entry["title"] == "Chamber IV: Revised Anchor"
+    assert updated_entry["spectral_band"] == "emerald"
+    assert updated_entry["content"] == "Initial sovereign inscription."
+
+    # 5. DELETE removes entry and subsequent GET/PATCH/DELETE return 404 Not Found
+    del_res = client.delete(f"/entries/{entry_id}", headers=headers_a)
+    assert del_res.status_code == 200
+    assert del_res.get_json() == {"deleted": True, "id": entry_id}
+
+    post_del_get = client.get(f"/entries/{entry_id}", headers=headers_a)
+    assert post_del_get.status_code == 404
+    assert post_del_get.get_json()["error"]["code"] == "NOT_FOUND"
+
+    list_after_del = client.get("/entries", headers=headers_a)
+    assert list_after_del.status_code == 200
+    assert list_after_del.get_json() == {"entries": []}
+
+    with app.app_context():
+        db.session.remove()
+        db.drop_all()
