@@ -101,9 +101,26 @@ def list_entries():
     if auth_err is not None:
         return auth_err
 
+    raw_band = request.args.get("spectral_band")
+    band_filter = None
+    if raw_band is not None:
+        normalized_band = raw_band.strip().lower()
+        if not normalized_band or normalized_band not in VALID_SPECTRAL_BANDS:
+            return _error_response(
+                code="VALIDATION_ERROR",
+                message="Invalid spectral_band query parameter.",
+                status_code=400,
+                details={
+                    "spectral_band": f"Must be one of: {', '.join(VALID_SPECTRAL_BANDS)}."
+                },
+            )
+        band_filter = normalized_band
+
     stmt = db.select(CodexEntry).order_by(CodexEntry.id.asc())
     if user.role != "admin":
         stmt = stmt.where(CodexEntry.user_id == user.id)
+    if band_filter is not None:
+        stmt = stmt.where(CodexEntry.spectral_band == band_filter)
 
     entries = db.session.execute(stmt).scalars().all()
     return jsonify({"entries": [entry.to_dict() for entry in entries]}), 200
