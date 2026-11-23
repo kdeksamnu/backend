@@ -70,7 +70,7 @@ class CodexEntry(db.Model):
         default=lambda: datetime.now(timezone.utc),
     )
 
-    owner = db.relationship("User", backref=db.backref("codex_entries", lazy=True))
+    owner = db.relationship("User", backref=db.backref("codex_entries", passive_deletes=True, lazy=True))
 
     @validates("spectral_band")
     def validate_spectral_band(self, key: str, value: str) -> str:

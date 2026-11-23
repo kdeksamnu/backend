@@ -19,6 +19,17 @@ def create_app(config_name=None):
     print(f"Loaded Database URI: {app.config.get('SQLALCHEMY_DATABASE_URI')}")
     print(f"---------------------------------\n")
 
+    # Register SQLite PRAGMA foreign_keys=ON BEFORE db.init_app(app)
+    if app.config.get("SQLALCHEMY_DATABASE_URI", "").startswith("sqlite"):
+        from sqlalchemy import event
+        from sqlalchemy.engine import Engine
+
+        @event.listens_for(Engine, "connect")
+        def _set_sqlite_pragma(dbapi_connection, connection_record):
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
+
     # Initialize extensions
     db.init_app(app)
     migrate.init_app(app, db)
