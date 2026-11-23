@@ -129,3 +129,127 @@ def test_admin_override_on_user_owned_entries(client):
     assert admin_del.status_code == 200
 
     assert client.get(f"/entries/{entry_id}", headers={"Authorization": f"Bearer {admin_tok}"}).status_code == 404
+
+
+def test_user_codex_entries_relationship_and_cascade_delete(app):
+    """Verify User.codex_entries, CodexEntry.owner, and ON DELETE CASCADE."""
+    from sqlalchemy import event
+    from ml_backend.extensions import db
+    from ml_backend.models import User, CodexEntry
+
+    with app.app_context():
+        # Ensure SQLite enforces ON DELETE CASCADE on this connection
+        def _enable_sqlite_fks(dbapi_connection, connection_record):
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
+
+        if db.engine.url.get_backend_name() == "sqlite":
+            event.listen(db.engine, "connect", _enable_sqlite_fks)
+
+        user = User(username="cascade_test_architect", role="user")
+        user.set_password("CascadePass123!")
+        db.session.add(user)
+        db.session.flush()
+
+        entry_one = CodexEntry(
+            user_id=user.id,
+            title="Chamber I: Rupes Nigra",
+            spectral_band="teal",
+            content="Exploratory mechanics along the Teal axis.",
+        )
+        entry_two = CodexEntry(
+            user_id=user.id,
+            title="Chamber II: The Seventh Chair",
+            spectral_band="blue",
+            content="Excavation of inheritance along the Blue axis.",
+        )
+        db.session.add_all([entry_one, entry_two])
+        db.session.commit()
+
+        user_id = user.id
+        entry_ids = [entry_one.id, entry_two.id]
+
+        # 1. Forward traversal: User -> codex_entries (One -> Many)
+        persisted_user = db.session.get(User, user_id)
+        assert len(persisted_user.codex_entries) == 2
+        assert {e.title for e in persisted_user.codex_entries} == {
+            "Chamber I: Rupes Nigra",
+            "Chamber II: The Seventh Chair",
+        }
+
+        # 2. Reverse traversal: CodexEntry -> owner (Many -> One)
+        for entry in persisted_user.codex_entries:
+            assert entry.owner is not None
+            assert entry.owner.id == user_id
+            assert entry.owner.username == "cascade_test_architect"
+
+        # 3. Cascade delete: deleting User removes owned CodexEntry rows
+        db.session.delete(persisted_user)
+        db.session.commit()
+
+        assert db.session.get(User, user_id) is None
+        remaining = CodexEntry.query.filter(CodexEntry.id.in_(entry_ids)).all()
+        assert remaining == []
+
+
+def test_user_codex_entries_relationship_and_cascade_delete(app):
+    """Verify User.codex_entries, CodexEntry.owner, and ON DELETE CASCADE."""
+    from sqlalchemy import event
+    from ml_backend.extensions import db
+    from ml_backend.models import User, CodexEntry
+
+    with app.app_context():
+        # Ensure SQLite enforces ON DELETE CASCADE on this connection
+        def _enable_sqlite_fks(dbapi_connection, connection_record):
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
+
+        if db.engine.url.get_backend_name() == "sqlite":
+            event.listen(db.engine, "connect", _enable_sqlite_fks)
+
+        user = User(username="cascade_test_architect", role="user")
+        user.set_password("CascadePass123!")
+        db.session.add(user)
+        db.session.flush()
+
+        entry_one = CodexEntry(
+            user_id=user.id,
+            title="Chamber I: Rupes Nigra",
+            spectral_band="teal",
+            content="Exploratory mechanics along the Teal axis.",
+        )
+        entry_two = CodexEntry(
+            user_id=user.id,
+            title="Chamber II: The Seventh Chair",
+            spectral_band="blue",
+            content="Excavation of inheritance along the Blue axis.",
+        )
+        db.session.add_all([entry_one, entry_two])
+        db.session.commit()
+
+        user_id = user.id
+        entry_ids = [entry_one.id, entry_two.id]
+
+        # 1. Forward traversal: User -> codex_entries (One -> Many)
+        persisted_user = db.session.get(User, user_id)
+        assert len(persisted_user.codex_entries) == 2
+        assert {e.title for e in persisted_user.codex_entries} == {
+            "Chamber I: Rupes Nigra",
+            "Chamber II: The Seventh Chair",
+        }
+
+        # 2. Reverse traversal: CodexEntry -> owner (Many -> One)
+        for entry in persisted_user.codex_entries:
+            assert entry.owner is not None
+            assert entry.owner.id == user_id
+            assert entry.owner.username == "cascade_test_architect"
+
+        # 3. Cascade delete: deleting User removes owned CodexEntry rows
+        db.session.delete(persisted_user)
+        db.session.commit()
+
+        assert db.session.get(User, user_id) is None
+        remaining = CodexEntry.query.filter(CodexEntry.id.in_(entry_ids)).all()
+        assert remaining == []
