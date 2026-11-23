@@ -94,6 +94,20 @@ def create_entry():
     return jsonify({"entry": entry.to_dict()}), 201
 
 
+DEFAULT_PAGE = 1
+DEFAULT_PER_PAGE = 10
+MAX_PER_PAGE = 100
+
+DEFAULT_SORT_BY = "id"
+DEFAULT_ORDER = "asc"
+VALID_SORT_ORDERS = ("asc", "desc")
+SORTABLE_FIELDS = {
+    name: getattr(CodexEntry, name)
+    for name in ("id", "title", "spectral_band", "created_at")
+    if hasattr(CodexEntry, name)
+}
+
+
 @entries_bp.get("/entries")
 @require_auth
 def list_entries():
@@ -101,6 +115,7 @@ def list_entries():
     if auth_err is not None:
         return auth_err
 
+    # 1. Validate optional spectral_band filter
     raw_band = request.args.get("spectral_band")
     band_filter = None
     if raw_band is not None:
@@ -116,14 +131,105 @@ def list_entries():
             )
         band_filter = normalized_band
 
-    stmt = db.select(CodexEntry).order_by(CodexEntry.id.asc())
+    # 2. Parse and validate pagination parameters
+    pagination_errors = {}
+
+    raw_page = request.args.get("page")
+    if raw_page is None:
+        page = DEFAULT_PAGE
+    else:
+        try:
+            page = int(raw_page.strip())
+            if page < 1:
+                pagination_errors["page"] = "Must be an integer greater than or equal to 1."
+        except ValueError:
+            pagination_errors["page"] = "Must be a valid integer."
+
+    raw_per_page = request.args.get("per_page")
+    if raw_per_page is None:
+        per_page = DEFAULT_PER_PAGE
+    else:
+        try:
+            per_page = int(raw_per_page.strip())
+            if per_page < 1 or per_page > MAX_PER_PAGE:
+                pagination_errors["per_page"] = (
+                    f"Must be an integer between 1 and {MAX_PER_PAGE}."
+                )
+        except ValueError:
+            pagination_errors["per_page"] = "Must be a valid integer."
+
+    if pagination_errors:
+        return _error_response(
+            code="VALIDATION_ERROR",
+            message="Invalid pagination query parameters.",
+            status_code=400,
+            details=pagination_errors,
+        )
+
+    # 3. Parse and validate allowlisted sorting parameters
+    sort_errors = {}
+
+    raw_sort_by = request.args.get("sort_by")
+    if raw_sort_by is None:
+        sort_by = DEFAULT_SORT_BY
+    else:
+        sort_by = raw_sort_by.strip().lower()
+        if not sort_by or sort_by not in SORTABLE_FIELDS:
+            sort_errors["sort_by"] = (
+                f"Must be one of: {', '.join(SORTABLE_FIELDS.keys())}."
+            )
+
+    raw_order = request.args.get("order")
+    if raw_order is None:
+        sort_order = DEFAULT_ORDER
+    else:
+        sort_order = raw_order.strip().lower()
+        if not sort_order or sort_order not in VALID_SORT_ORDERS:
+            sort_errors["order"] = (
+                f"Must be one of: {', '.join(VALID_SORT_ORDERS)}."
+            )
+
+    if sort_errors:
+        return _error_response(
+            code="VALIDATION_ERROR",
+            message="Invalid sorting query parameters.",
+            status_code=400,
+            details=sort_errors,
+        )
+
+    # 4. Build ownership-scoped, filtered, deterministically sorted statement
+    sort_column = SORTABLE_FIELDS[sort_by]
+    primary_order = sort_column.asc() if sort_order == "asc" else sort_column.desc()
+    order_clauses = [primary_order]
+    if sort_by != "id":
+        order_clauses.append(CodexEntry.id.asc())
+
+    stmt = db.select(CodexEntry).order_by(*order_clauses)
     if user.role != "admin":
         stmt = stmt.where(CodexEntry.user_id == user.id)
     if band_filter is not None:
         stmt = stmt.where(CodexEntry.spectral_band == band_filter)
 
-    entries = db.session.execute(stmt).scalars().all()
-    return jsonify({"entries": [entry.to_dict() for entry in entries]}), 200
+    # 5. Paginate with error_out=False so past-the-end pages return 200 with []
+    pagination = db.paginate(
+        stmt,
+        page=page,
+        per_page=per_page,
+        max_per_page=MAX_PER_PAGE,
+        error_out=False,
+    )
+
+    return jsonify(
+        {
+            "entries": [entry.to_dict() for entry in pagination.items],
+            "page": pagination.page,
+            "per_page": pagination.per_page,
+            "total": pagination.total,
+            "pages": pagination.pages,
+            "sort_by": sort_by,
+            "order": sort_order,
+        }
+    ), 200
 
 
 @entries_bp.get("/entries/<int:entry_id>")
