@@ -94,3 +94,27 @@ class CodexEntry(db.Model):
             "content": self.content,
             "created_at": created_at.isoformat().replace("+00:00", "Z"),
         }
+
+
+class AshArchiveRecord(db.Model):
+    __tablename__ = "ash_archive_records"
+
+    id = db.Column(db.Integer, primary_key=True)
+    uuid = db.Column(db.String(36), nullable=False, unique=True, index=True)
+    content_hash = db.Column(db.String(64), nullable=False, index=True)
+    payload = db.Column(db.Text, nullable=False)
+    status = db.Column(db.String(20), nullable=False, default="pending")
+    created_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+    user_id = db.Column(
+        db.Integer,
+        db.ForeignKey("user.id"),
+        nullable=False,
+        index=True,
+    )
+
+    def __repr__(self):
+        return f"<AshArchiveRecord {self.uuid} [status={self.status}]>"
