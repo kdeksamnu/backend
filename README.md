@@ -67,3 +67,18 @@ Start the Flask development server:
 
 Bash
 flask run
+
+---
+
+## Environment & Database Setup Notes
+
+* Ensure **`JWT_SECRET`** and **`SECRET_KEY`** are populated in `.env` after copying `.env.example` (otherwise JWT signing will raise a 500 error).
+* Always run `export FLASK_APP=ml_backend && flask db upgrade` before `flask run` to avoid SQLite schema drift.
+
+## API Endpoints Reference
+
+* **Register:** `POST /register` (`{"username": "...", "password": "..."}`)
+* **Login:** `POST /login` (`{"username": "...", "password": "..."}`) -> returns `{"access_token": "..."}`
+* **List Entries:** `GET /entries` (Requires `Authorization: Bearer <token>`)
+* **Create Entry:** `POST /entries` (Requires `Authorization: Bearer <token>`, `{"title": "...", "content": "..."}`)
+* **Entry Detail / Guard Check:** `GET /entries/<id>` (Enforces owner-only isolation / `403`/`404`)
