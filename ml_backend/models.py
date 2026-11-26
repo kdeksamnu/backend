@@ -25,6 +25,13 @@ class User(db.Model):
         default=lambda: datetime.now(timezone.utc),
     )
 
+    codex_entries = db.relationship(
+        "CodexEntry",
+        back_populates="owner",
+        passive_deletes=True,
+        lazy=True,
+    )
+
     def set_password(self, raw_password: str) -> None:
         self.password_hash = generate_password_hash(raw_password)
 
@@ -70,7 +77,7 @@ class CodexEntry(db.Model):
         default=lambda: datetime.now(timezone.utc),
     )
 
-    owner = db.relationship("User", backref=db.backref("codex_entries", passive_deletes=True, lazy=True))
+    owner = db.relationship("User", back_populates="codex_entries")
 
     @validates("spectral_band")
     def validate_spectral_band(self, key: str, value: str) -> str:
