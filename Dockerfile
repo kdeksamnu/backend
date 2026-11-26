@@ -13,4 +13,4 @@ COPY . .
 
 EXPOSE 8000
 
-CMD gunicorn --bind 0.0.0.0:${PORT:-8000} "ml_backend:create_app()"
+CMD FLASK_APP="ml_backend:create_app()" flask db upgrade && gunicorn --bind 0.0.0.0:${PORT:-8000} "ml_backend:create_app()"
